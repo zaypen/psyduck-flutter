@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -5,12 +7,38 @@ import 'package:flutter_blue/flutter_blue.dart';
 
 import 'constants.dart';
 
-typedef WriteCallback = void Function(List<int>);
-typedef Builder = Widget Function(BuildContext, List<int>?, WriteCallback);
+typedef WriteCallback = void Function(int);
+typedef Builder = Widget Function(BuildContext, int?, WriteCallback);
+typedef Reader = int? Function(List<int>?);
+typedef Writer = List<int> Function(int);
+
+int? readUint8(List<int>? value) {
+  return value?.firstOrNull;
+}
+
+List<int> writeUint8(int value) {
+  return [value];
+}
+
+int? readUint32(List<int>? value) {
+  return value != null && value.length >= 4
+      ? Uint8List.fromList(value)
+          .buffer
+          .asByteData()
+          .getUint32(0, Endian.little)
+      : null;
+}
+
+List<int> writeUint32(int value) {
+  return Uint8List(4)
+    ..buffer.asByteData().setUint32(0, value.toInt(), Endian.little);
+}
 
 class _CharacteristicTile extends StatelessWidget {
   final String title;
   final BluetoothCharacteristic characteristic;
+  final Reader reader;
+  final Writer writer;
   final Builder builder;
 
   const _CharacteristicTile({
@@ -18,6 +46,8 @@ class _CharacteristicTile extends StatelessWidget {
     required this.title,
     required this.characteristic,
     required this.builder,
+    required this.reader,
+    required this.writer,
   }) : super(key: key);
 
   @override
@@ -27,15 +57,15 @@ class _CharacteristicTile extends StatelessWidget {
       stream: characteristic.value,
       initialData: characteristic.lastValue,
       builder: (c, snapshot) {
-        final value = snapshot.data;
+        final value = reader(snapshot.data);
         return ListTile(
           title: Text(title),
-          subtitle: Text(value?.firstOrNull?.toString() ?? ""),
+          subtitle: Text(value?.toString() ?? "?"),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               builder(context, value, (v) {
-                characteristic.write(v);
+                characteristic.write(writer(v));
                 characteristic.read();
               }),
               IconButton(
@@ -64,10 +94,12 @@ class _ServiceTile extends StatelessWidget {
         return _CharacteristicTile(
           title: "Auto",
           characteristic: characteristic,
+          reader: readUint8,
+          writer: writeUint8,
           builder: (context, value, write) => CupertinoSwitch(
-            value: value?.singleOrNull == 1 ? true : false,
+            value: value == 1 ? true : false,
             onChanged: (bool value) {
-              write([value ? 1 : 0]);
+              write(value ? 1 : 0);
             },
           ),
         );
@@ -75,10 +107,12 @@ class _ServiceTile extends StatelessWidget {
         return _CharacteristicTile(
           title: "Arm Enabled",
           characteristic: characteristic,
+          reader: readUint8,
+          writer: writeUint8,
           builder: (context, value, write) => CupertinoSwitch(
-            value: value?.singleOrNull == 1 ? true : false,
+            value: value == 1 ? true : false,
             onChanged: (bool value) {
-              write([value ? 1 : 0]);
+              write(value ? 1 : 0);
             },
           ),
         );
@@ -86,40 +120,49 @@ class _ServiceTile extends StatelessWidget {
         return _CharacteristicTile(
           title: "Arm Wait",
           characteristic: characteristic,
-          builder: (context, value, write) => CupertinoSlider(
-            value: value?.firstOrNull?.toDouble() ?? 2000,
-            divisions: 100,
-            min: 2000,
-            max: 10000,
-            onChanged: (_) {},
-            onChangeEnd: (double value) {
-              write([value.toInt()]);
-            },
-          ),
+          reader: readUint32,
+          writer: writeUint32,
+          builder: (context, value, write) {
+            final remote = value?.toDouble() ?? 2000.0;
+            return CupertinoSlider(
+              value: remote,
+              divisions: 100,
+              min: 1000,
+              max: 10000,
+              onChanged: (_) {},
+              onChangeEnd: (double value) {
+                write(value.round());
+              },
+            );
+          },
         );
       case psyduckFootEnabledUUID:
         return _CharacteristicTile(
           title: "Spinning Enabled",
           characteristic: characteristic,
+          reader: readUint8,
+          writer: writeUint8,
           builder: (context, value, write) => CupertinoSwitch(
-            value: value?.singleOrNull == 1 ? true : false,
+            value: value == 1 ? true : false,
             onChanged: (bool value) {
-              write([value ? 1 : 0]);
+              write(value ? 1 : 0);
             },
           ),
         );
       case psyduckFootSpeedUUID:
         return _CharacteristicTile(
-          title: "Spinning Speed",
+          title: "Spinning Power",
           characteristic: characteristic,
+          reader: readUint8,
+          writer: writeUint8,
           builder: (context, value, write) => CupertinoSlider(
-            value: value?.firstOrNull?.toDouble() ?? 127,
+            value: value?.toDouble() ?? 127,
             divisions: 8,
-            min: 127,
+            min: 95,
             max: 255,
             onChanged: (_) {},
             onChangeEnd: (double value) {
-              write([value.toInt()]);
+              write(value.toInt());
             },
           ),
         );
